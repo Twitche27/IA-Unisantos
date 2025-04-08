@@ -22,5 +22,5 @@ def pegarCsv(n1, primeira_vez=False):
         print(f"Nenhum dado encontrado na página {n1+1}.")
 
 # Loop para baixar e salvar os dados paginados
-for n in range(0, 1000000000):
+for n in range(0, 2399):
     pegarCsv(n, primeira_vez=(n == 0))

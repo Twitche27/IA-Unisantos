@@ -39,5 +39,5 @@ df_resultado = df_resultado.sort_values('DATA_ORDENADA')
 df_resultado = df_resultado.drop(columns='DATA_ORDENADA')
 
 # Salva resultado
-df_resultado.to_csv('mortalidade_por_mes.csv', index=False)
+df_resultado.to_csv('mortalidade_por_mes.csv', index=False, encoding='utf-8-sig')
 print("Arquivo 'mortalidade_por_mes.csv' salvo com sucesso e ordenado por data.")

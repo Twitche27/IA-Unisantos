@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay, mean_absolute_error, r2_score
+from sklearn.utils.multiclass import unique_labels
 import matplotlib.pyplot as plt
 import collections
 
@@ -28,7 +29,7 @@ y_reg = df['Mortalidade - Óbitos (Individuos)'].values
 
 # Classificação (baixo, médio, alto)
 def classificar_mortalidade(v):
-    if v <= 49903:
+    if v <= 49903: #valores definidos através da análise da média e desvio padrão
         return 'baixo'
     elif v <= 76881:
         return 'medio'
@@ -49,14 +50,13 @@ X_scaled = scaler.fit_transform(X)
 # 4. Divisão treino/teste
 # =======================
 X_train, X_test, y_reg_train, y_reg_test, y_clf_train, y_clf_test = train_test_split(
-    X_scaled, y_reg, y_clf_encoded, test_size=0.2, random_state=42
+    X_scaled, y_reg, y_clf_encoded, test_size=0.2
 )
 
 # =======================
 # 5. Modelos Random Forest
 # =======================
-class_weights = {0: 2, 1: 1, 2: 1}  # A classe 'baixo' recebe maior peso
-clf_model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight=class_weights)
+clf_model = RandomForestClassifier(n_estimators=100, random_state=42)
 clf_model.fit(X_train, y_clf_train)
 y_clf_pred = clf_model.predict(X_test)
 
@@ -68,40 +68,40 @@ y_reg_pred = reg_model.predict(X_test)
 # =======================
 # 6. Avaliação Classificação
 # =======================
+
+# Mostra a acurácia do código em relação aos dados de teste
 acc = accuracy_score(y_clf_test, y_clf_pred)
-cm = confusion_matrix(y_clf_test, y_clf_pred)
+print(f"\n✅ Acurácia da classificação: {acc * 100:.2f}%")
 
-# Exibindo a matriz de confusão
-print(f'Matriz de Confusão:\n{cm}')
 
-# Exibir as primeiras 20 predições e suas classes reais
-print("\n📊 Exibindo as primeiras 20 predições:")
-for i in range(20):
-    print(f"Predição: {le.inverse_transform([y_clf_pred[i]])[0]} | Real: {le.inverse_transform([y_clf_test[i]])[0]}")
+# Força as 3 classes (mesmo que alguma não apareça no conjunto de teste)
+all_labels = np.array([0, 1, 2])  # Classes codificadas: alto, baixo, medio
+cm = confusion_matrix(y_clf_test, y_clf_pred, labels=all_labels)
+
+# Mostrando no máximo 20 amostras, ou o total disponível
+n_to_show = min(20, len(y_clf_pred))
+
+print("\n📊 Exibindo as primeiras predições:")
+for i in range(n_to_show):
+    pred = le.inverse_transform([y_clf_pred[i]])[0]
+    real = le.inverse_transform([y_clf_test[i]])[0]
+    print(f"Predição: {pred} | Real: {real}")
 
 # Criando o gráfico com a matriz de confusão
 fig, ax = plt.subplots(figsize=(8, 6))
+fig.canvas.manager.set_window_title("Matriz de Confusão - Classificação")
 
-# Ajuste manual dos ticks
-disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=le.classes_)
+# Exibe todas as classes no eixo em ordem (mesmo que tenham valor 0)
+ordered_labels = ['baixo', 'medio', 'alto']
+ordered_indices = le.transform(ordered_labels)
+cm_ordered = cm[np.ix_(ordered_indices, ordered_indices)]
 
-# Forçar 3 posições de ticks
-ax.set_xticks([0, 1, 2])  # Para 3 classes: baixo, médio, alto
-ax.set_yticks([0, 1, 2])  # Para 3 classes: baixo, médio, alto
-
-# Ajuste dos labels de acordo com as classes
-ax.set_xticklabels(le.classes_)
-ax.set_yticklabels(le.classes_)
-
-# Plotando a matriz de confusão
+disp = ConfusionMatrixDisplay(confusion_matrix=cm_ordered, display_labels=ordered_labels)
 disp.plot(ax=ax, cmap='Blues')
 
-# Ajustando título e labels
 plt.title("Matriz de Confusão - Classificação")
 plt.xlabel("Previsões")
 plt.ylabel("Valores Reais")
-
-# Exibir o gráfico
 plt.tight_layout()
 plt.show()
 

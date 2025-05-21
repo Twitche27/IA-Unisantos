@@ -1,12 +1,14 @@
+import warnings
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay, mean_absolute_error, r2_score
-from sklearn.utils.multiclass import unique_labels
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 import collections
+
+warnings.filterwarnings("ignore", message="The least populated class in y has only.*")
 
 # =======================
 # 1. Carregamento e limpeza
@@ -28,13 +30,16 @@ X = df[['População Total Brasileira (Indivíduos)', 'PIB (R$)', 'Taxa de Desoc
 y_reg = df['Mortalidade - Óbitos (Individuos)'].values
 
 # Classificação (baixo, médio, alto)
-def classificar_mortalidade(v):
-    if v <= 49903: #valores definidos através da análise da média e desvio padrão
+q1 = np.percentile(y_reg, 33)
+q2 = np.percentile(y_reg, 66)
+
+def classificar_mortalidade(valor):
+    if valor <= q1:
         return 'baixo'
-    elif v <= 76881:
+    elif valor <= q2:
         return 'medio'
     else:
-        return 'alto'   
+        return 'alto'
 
 y_clf = np.array([classificar_mortalidade(v) for v in y_reg])
 le = LabelEncoder()
@@ -47,56 +52,36 @@ scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
 # =======================
-# 4. Divisão treino/teste
+# 4. Cross-validation - Classificação
 # =======================
-X_train, X_test, y_reg_train, y_reg_test, y_clf_train, y_clf_test = train_test_split(
-    X_scaled, y_reg, y_clf_encoded, test_size=0.2
-)
+clf_model = RandomForestClassifier(n_estimators=100, class_weight='balanced')
+cv = StratifiedKFold(n_splits=10, shuffle=True)
 
-# =======================
-# 5. Modelos Random Forest
-# =======================
-clf_model = RandomForestClassifier(n_estimators=100, random_state=42)
-clf_model.fit(X_train, y_clf_train)
-y_clf_pred = clf_model.predict(X_test)
+scores = cross_val_score(clf_model, X_scaled, y_clf_encoded, cv=cv, scoring='accuracy')
+formatted_scores = [f"{score*100:.3f}%" for score in scores]
 
-# Regressor
-reg_model = RandomForestRegressor(n_estimators=100, random_state=42)
-reg_model.fit(X_train, y_reg_train)
-y_reg_pred = reg_model.predict(X_test)
+print("✅ Acurácias nas 10 execuções (classificação):", formatted_scores)
+print(f"🎯 Acurácia média: {np.mean(scores)*100:.4f}% | Desvio padrão: {np.std(scores):.4f}")
 
 # =======================
-# 6. Avaliação Classificação
+# 5. Exibição de uma matriz de confusão final (última execução manual)
 # =======================
+# Pegando um dos splits para exibir a matriz de confusão
+for train_idx, test_idx in cv.split(X_scaled, y_clf_encoded):
+    X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
+    y_train, y_test = y_clf_encoded[train_idx], y_clf_encoded[test_idx]
+    break  # só o primeiro split para visualização
 
-# Mostra a acurácia do código em relação aos dados de teste
-acc = accuracy_score(y_clf_test, y_clf_pred)
-print(f"\n✅ Acurácia da classificação: {acc * 100:.2f}%")
+clf_model.fit(X_train, y_train)
+y_pred = clf_model.predict(X_test)
 
-
-# Força as 3 classes (mesmo que alguma não apareça no conjunto de teste)
-all_labels = np.array([0, 1, 2])  # Classes codificadas: alto, baixo, medio
-cm = confusion_matrix(y_clf_test, y_clf_pred, labels=all_labels)
-
-# Mostrando no máximo 20 amostras, ou o total disponível
-n_to_show = min(20, len(y_clf_pred))
-
-print("\n📊 Exibindo as primeiras predições:")
-for i in range(n_to_show):
-    pred = le.inverse_transform([y_clf_pred[i]])[0]
-    real = le.inverse_transform([y_clf_test[i]])[0]
-    print(f"Predição: {pred} | Real: {real}")
-
-# Criando o gráfico com a matriz de confusão
-fig, ax = plt.subplots(figsize=(8, 6))
-fig.canvas.manager.set_window_title("Matriz de Confusão - Classificação")
-
-# Exibe todas as classes no eixo em ordem (mesmo que tenham valor 0)
+# Confusion matrix
 ordered_labels = ['baixo', 'medio', 'alto']
 ordered_indices = le.transform(ordered_labels)
-cm_ordered = cm[np.ix_(ordered_indices, ordered_indices)]
+cm = confusion_matrix(y_test, y_pred, labels=ordered_indices)
 
-disp = ConfusionMatrixDisplay(confusion_matrix=cm_ordered, display_labels=ordered_labels)
+fig, ax = plt.subplots(figsize=(8, 6))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=ordered_labels)
 disp.plot(ax=ax, cmap='Blues')
 
 plt.title("Matriz de Confusão - Classificação")
@@ -106,20 +91,22 @@ plt.tight_layout()
 plt.show()
 
 # =======================
-# 7. Avaliação Regressão
+# 6. Regressão em único split (mesmo acima)
 # =======================
-mae = mean_absolute_error(y_reg_test, y_reg_pred)
-r2 = r2_score(y_reg_test, y_reg_pred)
+reg_model = RandomForestRegressor(n_estimators=100)
+reg_model.fit(X_train, y_reg[train_idx])
+y_reg_pred = reg_model.predict(X_test)
+
+mae = mean_absolute_error(y_reg[test_idx], y_reg_pred)
+r2 = r2_score(y_reg[test_idx], y_reg_pred)
 
 print(f'📉 Erro Médio Absoluto (MAE - regressão): {mae:.2f}')
 print(f'📈 R² Score (regressão): {r2:.2f}')
 
-# =======================
-# 8. Gráfico Regressão
-# =======================
 plt.figure(figsize=(8, 6))
-plt.scatter(y_reg_test, y_reg_pred, alpha=0.7)
-plt.plot([min(y_reg_test), max(y_reg_test)], [min(y_reg_test), max(y_reg_test)], 'r--')
+plt.scatter(y_reg[test_idx], y_reg_pred, alpha=0.7)
+plt.plot([min(y_reg[test_idx]), max(y_reg[test_idx])],
+         [min(y_reg[test_idx]), max(y_reg[test_idx])], 'r--')
 plt.xlabel("Valores Reais")
 plt.ylabel("Preditos")
 plt.title("Random Forest - Regressão (Óbitos)")
@@ -128,7 +115,11 @@ plt.tight_layout()
 plt.show()
 
 # =======================
-# 9. Distribuição das classes
+# 7. Distribuição das classes
 # =======================
 print("\n📊 Distribuição das classes:")
 print(collections.Counter(y_clf))
+
+importances = clf_model.feature_importances_
+for name, importance in zip(df.columns[1:6], importances):
+    print(f'{name}: {importance:.3f}')
